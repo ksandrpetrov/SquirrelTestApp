@@ -42,6 +42,7 @@ android {
 }
 
 dependencies {
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -53,6 +54,13 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-ui:1.3.1")
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.core:core-ktx:1.13.1")
+    // ... other dependencies
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.palette:palette-ktx:1.0.0") // <-- Add this line
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

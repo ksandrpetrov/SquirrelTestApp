@@ -23,10 +23,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +46,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -48,7 +56,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,6 +77,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -84,6 +95,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.palette.graphics.Palette
 import com.example.heis2025.ui.theme.Heis2025Theme
 import kotlinx.coroutines.delay
 
@@ -242,21 +254,22 @@ fun Greeting(modifier: Modifier = Modifier) {
     )
 
     val getPhoneButton = @Composable {
-        Button(
+        ElevatedButton(
             onClick = {
                 if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
                     pickContactLauncher.launch()
                 } else {
                     requestContactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("Получить телефон")
         }
     }
 
     val launchMusicButton = @Composable {
-        Button(
+        ElevatedButton(
             onClick = {
                 val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     Manifest.permission.READ_MEDIA_AUDIO
@@ -268,7 +281,8 @@ fun Greeting(modifier: Modifier = Modifier) {
                 } else {
                     requestAudioPermissionLauncher.launch(permission)
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("Запустить музыку")
         }
@@ -305,7 +319,7 @@ fun Greeting(modifier: Modifier = Modifier) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Numpad(onNumberClick = onNumberClick)
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 getPhoneButton()
                 Spacer(modifier = Modifier.height(8.dp))
                 launchMusicButton()
@@ -329,7 +343,7 @@ fun Greeting(modifier: Modifier = Modifier) {
                     .clickable { text = "" }
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             if (imageSize != IntSize.Zero) {
                 val density = LocalDensity.current
@@ -362,18 +376,17 @@ fun Greeting(modifier: Modifier = Modifier) {
 
 @Composable
 fun Numpad(onNumberClick: (String) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        (1..9).chunked(3).forEach { row ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
+    val numbers = (1..9).toList()
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        numbers.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { number ->
-                    Button(onClick = { onNumberClick(number.toString()) }) {
-                        Text(
-                            text = number.toString(),
-                            fontSize = 42.sp
-                        )
+                    FilledTonalButton(
+                        onClick = { onNumberClick(number.toString()) },
+                        shape = CircleShape,
+                        modifier = Modifier.size(80.dp)
+                    ) {
+                        Text(text = number.toString(), fontSize = 24.sp)
                     }
                 }
             }
@@ -393,6 +406,7 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
     var songTitle by remember { mutableStateOf("Unknown Title") }
     var songArtist by remember { mutableStateOf("Unknown Artist") }
     var albumArt by remember { mutableStateOf<Bitmap?>(null) }
+    var palette by remember { mutableStateOf<Palette?>(null) }
 
     var isMinimized by remember { mutableStateOf(true) }
 
@@ -409,6 +423,11 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
             songArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Unknown Artist"
             val art = retriever.embeddedPicture
             albumArt = art?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            albumArt?.let { bmp ->
+                Palette.from(bmp).generate { p ->
+                    palette = p
+                }
+            }
             retriever.release()
         } catch (e: Exception) {
             // Nothing to do
@@ -444,7 +463,16 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Crossfade(targetState = isMinimized, modifier = Modifier.align(Alignment.BottomCenter), label = "PlayerState") {
+        AnimatedContent(
+            targetState = isMinimized,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            label = "PlayerAnimation",
+            transitionSpec = {
+                (slideInVertically { height -> height } + fadeIn())
+                    .togetherWith(slideOutVertically { height -> height } + fadeOut())
+                    .using(SizeTransform(clip = false))
+            }
+        ) {
             minimized ->
             if (minimized) {
                 MiniPlayer(
@@ -467,6 +495,7 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
                     isPlaying = isPlaying,
                     currentTime = currentTime,
                     totalDuration = totalDuration,
+                    palette = palette,
                     onPlayPause = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
                     onSeek = { exoPlayer.seekTo(it.toLong()) },
                     onMinimize = { isMinimized = true },
@@ -486,6 +515,7 @@ fun FullScreenPlayer(
     isPlaying: Boolean,
     currentTime: Long,
     totalDuration: Long,
+    palette: Palette?,
     onPlayPause: () -> Unit,
     onSeek: (Float) -> Unit,
     onMinimize: () -> Unit,
@@ -497,10 +527,16 @@ fun FullScreenPlayer(
         BitmapFactory.decodeResource(context.resources, R.drawable.bel)
     }
 
+    val defaultColor = MaterialTheme.colorScheme.surface
+    val gradientBrush = remember(palette) {
+        val color = palette?.dominantSwatch?.rgb?.let { Color(it) } ?: defaultColor
+        Brush.verticalGradient(listOf(color.copy(alpha = 0.5f), defaultColor))
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(gradientBrush)
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -577,9 +613,9 @@ fun MiniPlayer(
             .padding(horizontal = 8.dp) 
             .fillMaxWidth()
             .clickable(onClick = onExpand),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(24.dp),
         shadowElevation = 8.dp,
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Column {
             Row(
@@ -591,7 +627,7 @@ fun MiniPlayer(
                     contentDescription = "Album Art",
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(4.dp)),
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop
                 )
                 Spacer(Modifier.width(8.dp))
@@ -608,7 +644,7 @@ fun MiniPlayer(
             }
             val progress = if (totalDuration > 0) currentTime.toFloat() / totalDuration.toFloat() else 0f
             LinearProgressIndicator(
-                progress = progress,
+                progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
