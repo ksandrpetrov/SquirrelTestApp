@@ -530,7 +530,7 @@ fun FullScreenPlayer(
     val defaultColor = MaterialTheme.colorScheme.surface
     val gradientBrush = remember(palette) {
         val color = palette?.dominantSwatch?.rgb?.let { Color(it) } ?: defaultColor
-        Brush.verticalGradient(listOf(color.copy(alpha = 0.5f), defaultColor))
+        Brush.verticalGradient(listOf(color.copy(alpha = 0.75f), defaultColor))
     }
 
     Column(
