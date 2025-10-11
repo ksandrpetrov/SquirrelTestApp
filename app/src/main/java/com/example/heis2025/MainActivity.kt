@@ -528,10 +528,13 @@ fun FullScreenPlayer(
     }
 
     val defaultColor = MaterialTheme.colorScheme.surface
-    val gradientBrush = remember(palette) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+
+    val gradientBrush = remember(palette, backgroundColor) {
         val color = palette?.dominantSwatch?.rgb?.let { Color(it) } ?: defaultColor
-        Brush.verticalGradient(listOf(color.copy(alpha = 0.75f), defaultColor))
+        Brush.verticalGradient(listOf(color.copy(alpha = 0.99f), backgroundColor))
     }
+
 
     Column(
         modifier = Modifier
@@ -542,8 +545,19 @@ fun FullScreenPlayer(
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            IconButton(onClick = onMinimize) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Minimize")
+            IconButton(
+                onClick = onMinimize,
+                modifier = Modifier
+                    .background(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = CircleShape
+                    )
+            ) {
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Minimize",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             }
         }
 
@@ -559,7 +573,7 @@ fun FullScreenPlayer(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(artist, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(artist, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
         }
         Column(Modifier.fillMaxWidth()) {
             Slider(
@@ -610,7 +624,7 @@ fun MiniPlayer(
 
     Surface(
         modifier = modifier
-            .padding(horizontal = 8.dp) 
+            .padding(horizontal = 8.dp)
             .fillMaxWidth()
             .clickable(onClick = onExpand),
         shape = RoundedCornerShape(24.dp),
