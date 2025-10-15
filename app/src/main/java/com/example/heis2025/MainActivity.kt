@@ -2,6 +2,7 @@ package com.example.heis2025
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -94,9 +95,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.palette.graphics.Palette
 import com.example.heis2025.ui.theme.Heis2025Theme
+import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -142,6 +145,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // todo: release controller
     }
 
     override fun onDestroy() {
@@ -244,10 +252,15 @@ fun Greeting(modifier: Modifier = Modifier) {
         }
     )
 
-    val requestAudioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted: Boolean ->
-            if (isGranted) {
+    val requestPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = {
+            val audioPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+            if (context.checkSelfPermission(audioPermission) == PackageManager.PERMISSION_GRANTED) {
                 pickAudioLauncher.launch("audio/mpeg")
             }
         }
@@ -271,15 +284,27 @@ fun Greeting(modifier: Modifier = Modifier) {
     val launchMusicButton = @Composable {
         ElevatedButton(
             onClick = {
-                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val permissionsToRequest = mutableListOf<String>()
+                val audioPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     Manifest.permission.READ_MEDIA_AUDIO
                 } else {
                     Manifest.permission.READ_EXTERNAL_STORAGE
                 }
-                if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
-                    pickAudioLauncher.launch("audio/mpeg")
+
+                if (context.checkSelfPermission(audioPermission) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(audioPermission)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+
+                if (permissionsToRequest.isNotEmpty()) {
+                    requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
                 } else {
-                    requestAudioPermissionLauncher.launch(permission)
+                    pickAudioLauncher.launch("audio/mpeg")
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -397,9 +422,23 @@ fun Numpad(onNumberClick: (String) -> Unit) {
 @Composable
 fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build()
+    var mediaController by remember { mutableStateOf<MediaController?>(null) }
+
+    DisposableEffect(context) {
+        val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        controllerFuture.addListener(
+            {
+                mediaController = controllerFuture.get()
+            },
+            MoreExecutors.directExecutor()
+        )
+
+        onDispose {
+            mediaController?.release()
+        }
     }
+
     var isPlaying by remember { mutableStateOf(false) }
     var totalDuration by remember { mutableStateOf(0L) }
     var currentTime by remember { mutableStateOf(0L) }
@@ -410,31 +449,16 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
 
     var isMinimized by remember { mutableStateOf(true) }
 
-    LaunchedEffect(audioUri) {
-        val mediaItem = MediaItem.fromUri(audioUri)
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-
-        try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(context, audioUri)
-            songTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: "Unknown Title"
-            songArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Unknown Artist"
-            val art = retriever.embeddedPicture
-            albumArt = art?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-            albumArt?.let { bmp ->
-                Palette.from(bmp).generate { p ->
-                    palette = p
-                }
-            }
-            retriever.release()
-        } catch (e: Exception) {
-            // Nothing to do
+    LaunchedEffect(mediaController, audioUri) {
+        mediaController?.let {
+            val mediaItem = MediaItem.fromUri(audioUri)
+            it.setMediaItem(mediaItem)
+            it.prepare()
+            it.play()
         }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(mediaController) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlayingValue: Boolean) {
                 isPlaying = isPlayingValue
@@ -442,22 +466,33 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
-                    totalDuration = exoPlayer.duration
+                    totalDuration = mediaController?.duration ?: 0L
+                }
+            }
+
+            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                songTitle = mediaMetadata.title?.toString() ?: "Unknown Title"
+                songArtist = mediaMetadata.artist?.toString() ?: "Unknown Artist"
+                val art = mediaMetadata.artworkData
+                albumArt = art?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                albumArt?.let { bmp ->
+                    Palette.from(bmp).generate { p ->
+                        palette = p
+                    }
                 }
             }
         }
 
-        exoPlayer.addListener(listener)
+        mediaController?.addListener(listener)
 
         onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            mediaController?.removeListener(listener)
         }
     }
 
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
-            currentTime = exoPlayer.currentPosition
+            currentTime = mediaController?.currentPosition ?: 0L
             delay(1000L)
         }
     }
@@ -482,7 +517,7 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
                     isPlaying = isPlaying,
                     totalDuration = totalDuration,
                     currentTime = currentTime,
-                    onPlayPause = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                    onPlayPause = { mediaController?.playWhenReady = !isPlaying },
                     onClose = onDismiss,
                     onExpand = { isMinimized = false },
                     modifier = Modifier.padding(bottom = 32.dp)
@@ -496,8 +531,8 @@ fun AudioPlayer(audioUri: Uri, onDismiss: () -> Unit) {
                     currentTime = currentTime,
                     totalDuration = totalDuration,
                     palette = palette,
-                    onPlayPause = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                    onSeek = { exoPlayer.seekTo(it.toLong()) },
+                    onPlayPause = { mediaController?.playWhenReady = !isPlaying },
+                    onSeek = { mediaController?.seekTo(it.toLong()) },
                     onMinimize = { isMinimized = true },
                     onNext = { /* TODO */ },
                     onPrevious = { /* TODO */ }
