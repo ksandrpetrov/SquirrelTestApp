@@ -15,17 +15,14 @@ import com.google.common.util.concurrent.ListenableFuture
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
-    // 1. Создаем кастомный MediaSession.Callback
     private val mediaSessionCallback = object : MediaSession.Callback {
         @OptIn(UnstableApi::class)
-        // 2. Вся логика onAddMediaItems теперь находится здесь
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>
         ): ListenableFuture<MutableList<MediaItem>> {
             val updatedMediaItems = mediaItems.map { mediaItem ->
-                // Ваша логика по извлечению метаданных
                 if (mediaItem.requestMetadata.mediaUri != null) {
                     val metadata = getMetadataFromUri(this@PlaybackService, mediaItem.requestMetadata.mediaUri!!)
                     mediaItem.buildUpon().setMediaMetadata(metadata).build()
@@ -33,7 +30,6 @@ class PlaybackService : MediaSessionService() {
                     mediaItem
                 }
             }.toMutableList()
-            // Возвращаем обновленный список, обернутый в ListenableFuture
             return Futures.immediateFuture(updatedMediaItems)
         }
     }
@@ -41,29 +37,21 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val player = ExoPlayer.Builder(this).build()
-        // 3. Передаем наш кастомный колбэк при создании MediaSession
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(mediaSessionCallback)
             .build()
     }
 
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
-        val player = mediaSession?.player!!
-        if (!player.playWhenReady || player.mediaItemCount == 0) {
-            stopSelf()
-        }
+        stopSelf()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 
-    // 4. УДАЛЯЕМ старый метод onAddMediaItems из класса PlaybackService
-    // override fun onAddMediaItems(...) { ... }
-
     private fun getMetadataFromUri(context: Context, uri: android.net.Uri): MediaMetadata {
         val retriever = MediaMetadataRetriever()
-        // Обертка в try...finally для гарантированного освобождения ресурсов
         try {
             retriever.setDataSource(context, uri)
             val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
