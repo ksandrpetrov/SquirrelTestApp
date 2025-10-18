@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <permission android:name="com.example.heis2025.permission.READ_TEXT_RECORDS"
+        android:label="Read Text Records"
+        android:protectionLevel="normal" />
+    <permission android:name="com.example.heis2025.permission.WRITE_TEXT_RECORDS"
+        android:label="Write Text Records"
+        android:protectionLevel="normal" />
 
     <application
         android:allowBackup="true"
@@ -33,6 +41,16 @@
                 <action android:name="androidx.media3.session.MediaSessionService"/>
             </intent-filter>
         </service>
+        <service android:name=".GreetingBackgroundService"
+            android:enabled="true"
+            android:exported="false" />
+        
+        <provider
+            android:name=".data.TextRecordsProvider"
+            android:authorities="com.example.heis2025.provider"
+            android:exported="true"
+            android:readPermission="com.example.heis2025.permission.READ_TEXT_RECORDS"
+            android:writePermission="com.example.heis2025.permission.WRITE_TEXT_RECORDS" />
     </application>
 
 </manifest>

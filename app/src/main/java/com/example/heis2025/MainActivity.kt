@@ -24,6 +24,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -99,6 +101,8 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.palette.graphics.Palette
 import com.example.heis2025.ui.theme.Heis2025Theme
+import com.example.heis2025.data.TextRecordsRepository
+import com.example.heis2025.data.TextRecord
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 
@@ -107,16 +111,37 @@ class MainActivity : ComponentActivity() {
     private lateinit var batteryReceiver: BroadcastReceiver
     private var showBatteryMessage by mutableStateOf(false)
     private var lowBatteryAlertShown by mutableStateOf(false)
+    
+    private var textRepository: TextRecordsRepository? = null
+    private var currentTextRecord: TextRecord? = null
+    private var isEditMode by mutableStateOf(false)
+    private var showDataView by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
+
+        GreetingBackgroundService.startService(this)
+        
+        textRepository = TextRecordsRepository(this)
+
         setContent {
             Heis2025Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         Greeting(
-                            modifier = Modifier.padding(innerPadding)
+                            modifier = Modifier.padding(innerPadding),
+                            textRepository = textRepository,
+                            currentTextRecord = currentTextRecord,
+                            isEditMode = isEditMode,
+                            showDataView = showDataView,
+                            onTextRecordChanged = { currentTextRecord = it },
+                            onEditModeChanged = { isEditMode = it },
+                            onShowDataViewChanged = { showDataView = it }
                         )
                         if (showBatteryMessage) {
                             LargeBatteryMessage(message = "30% батареи, бегу за орехами!") {
@@ -155,6 +180,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(batteryReceiver)
+        GreetingBackgroundService.stopService(this)
     }
 }
 
@@ -188,14 +214,29 @@ fun LargeBatteryMessage(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun Greeting(modifier: Modifier = Modifier) {
+fun Greeting(
+    modifier: Modifier = Modifier,
+    textRepository: TextRecordsRepository?,
+    currentTextRecord: TextRecord?,
+    isEditMode: Boolean,
+    showDataView: Boolean,
+    onTextRecordChanged: (TextRecord?) -> Unit,
+    onEditModeChanged: (Boolean) -> Unit,
+    onShowDataViewChanged: (Boolean) -> Unit
+) {
     var text by remember { mutableStateOf("") }
+    var textInput by remember { mutableStateOf("") }
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
     val scrollState = rememberScrollState()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
     var audioUri by remember { mutableStateOf<Uri?>(null) }
+    
+    // Инициализируем текстовое поле при загрузке записи
+    LaunchedEffect(currentTextRecord) {
+        textInput = currentTextRecord?.text ?: ""
+    }
 
     val onNumberClick: (String) -> Unit = { number ->
         text += number
@@ -313,6 +354,71 @@ fun Greeting(modifier: Modifier = Modifier) {
         }
     }
 
+    val startServiceButton = @Composable {
+        ElevatedButton(
+            onClick = {
+                GreetingBackgroundService.startService(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🔄 Запустить Background Service")
+        }
+    }
+
+    val stopServiceButton = @Composable {
+        ElevatedButton(
+            onClick = {
+                GreetingBackgroundService.stopService(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🛑 Остановить Background Service")
+        }
+    }
+    
+    val saveText: () -> Unit = {
+        if (textInput.isNotBlank()) {
+            textRepository?.let { repo ->
+                val recordId = repo.saveText(textInput)
+                if (recordId > 0) {
+                    val newRecord = TextRecord(id = recordId, text = textInput)
+                    onTextRecordChanged(newRecord)
+                    onEditModeChanged(true)
+                }
+            }
+        }
+    }
+    
+    val updateText: () -> Unit = {
+        if (textInput.isNotBlank() && currentTextRecord != null) {
+            textRepository?.let { repo ->
+                val success = repo.updateText(currentTextRecord!!.id, textInput)
+                if (success) {
+                    val updatedRecord = currentTextRecord!!.copy(text = textInput)
+                    onTextRecordChanged(updatedRecord)
+                }
+            }
+        }
+    }
+    
+    val deleteText: () -> Unit = {
+        currentTextRecord?.let { record ->
+            textRepository?.let { repo ->
+                val success = repo.deleteText(record.id)
+                if (success) {
+                    onTextRecordChanged(null)
+                    onEditModeChanged(false)
+                    textInput = ""
+                }
+            }
+        }
+    }
+    
+    val toggleDataView: () -> Unit = {
+        onShowDataViewChanged(!showDataView)
+    }
+
+
     if (isLandscape) {
         Row(
             modifier = modifier
@@ -348,6 +454,66 @@ fun Greeting(modifier: Modifier = Modifier) {
                 getPhoneButton()
                 Spacer(modifier = Modifier.height(8.dp))
                 launchMusicButton()
+                Spacer(modifier = Modifier.height(8.dp))
+                startServiceButton()
+                Spacer(modifier = Modifier.height(8.dp))
+                stopServiceButton()
+                
+                // Секция для работы с текстом
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "📝 Работа с текстом",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = textInput,
+                    onValueChange = { textInput = it },
+                    label = { Text("Введите текст") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 3
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!isEditMode) {
+                        ElevatedButton(
+                            onClick = saveText,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("💾 Save")
+                        }
+                    } else {
+                        ElevatedButton(
+                            onClick = updateText,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("✏️ Update")
+                        }
+                        ElevatedButton(
+                            onClick = deleteText,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🗑️ Delete")
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                ElevatedButton(
+                    onClick = toggleDataView,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (showDataView) "📋 Скрыть данные" else "📋 Показать данные")
+                }
             }
         }
     } else { // Portrait
@@ -388,6 +554,56 @@ fun Greeting(modifier: Modifier = Modifier) {
             getPhoneButton()
             Spacer(modifier = Modifier.height(8.dp))
             launchMusicButton()
+            Spacer(modifier = Modifier.height(8.dp))
+            startServiceButton()
+            Spacer(modifier = Modifier.height(8.dp))
+            stopServiceButton()
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "📝 Работа с текстом",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            OutlinedTextField(
+                value = textInput,
+                onValueChange = { textInput = it },
+                label = { Text("Введите текст") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                maxLines = 3
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (!isEditMode) {
+                    ElevatedButton(
+                        onClick = saveText,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("💾 Save")
+                    }
+                } else {
+                    ElevatedButton(
+                        onClick = updateText,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("✏️ Update")
+                    }
+                    ElevatedButton(
+                        onClick = deleteText,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("🗑️ Delete")
+                    }
+                }
+            }
         }
     }
 
@@ -714,6 +930,14 @@ fun formatTime(millis: Long): String {
 @Composable
 fun GreetingPreview() {
     Heis2025Theme {
-        Greeting()
+        Greeting(
+            textRepository = null,
+            currentTextRecord = null,
+            isEditMode = false,
+            showDataView = false,
+            onTextRecordChanged = {},
+            onEditModeChanged = {},
+            onShowDataViewChanged = {}
+        )
     }
 }
