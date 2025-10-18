@@ -24,6 +24,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -111,6 +113,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Запрашиваем разрешение на уведомления
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
+
+        // Автоматически запускаем классический Background Service
+        GreetingBackgroundService.startService(this)
+
         setContent {
             Heis2025Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -155,6 +166,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(batteryReceiver)
+        // Останавливаем Background Service
+        GreetingBackgroundService.stopService(this)
     }
 }
 
@@ -313,6 +326,29 @@ fun Greeting(modifier: Modifier = Modifier) {
         }
     }
 
+    val startServiceButton = @Composable {
+        ElevatedButton(
+            onClick = {
+                GreetingBackgroundService.startService(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🔄 Запустить Background Service")
+        }
+    }
+
+    val stopServiceButton = @Composable {
+        ElevatedButton(
+            onClick = {
+                GreetingBackgroundService.stopService(context)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("🛑 Остановить Background Service")
+        }
+    }
+
+
     if (isLandscape) {
         Row(
             modifier = modifier
@@ -348,6 +384,10 @@ fun Greeting(modifier: Modifier = Modifier) {
                 getPhoneButton()
                 Spacer(modifier = Modifier.height(8.dp))
                 launchMusicButton()
+                Spacer(modifier = Modifier.height(8.dp))
+                startServiceButton()
+                Spacer(modifier = Modifier.height(8.dp))
+                stopServiceButton()
             }
         }
     } else { // Portrait
@@ -388,6 +428,10 @@ fun Greeting(modifier: Modifier = Modifier) {
             getPhoneButton()
             Spacer(modifier = Modifier.height(8.dp))
             launchMusicButton()
+            Spacer(modifier = Modifier.height(8.dp))
+            startServiceButton()
+            Spacer(modifier = Modifier.height(8.dp))
+            stopServiceButton()
         }
     }
 
